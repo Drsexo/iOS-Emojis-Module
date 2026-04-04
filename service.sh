@@ -1,266 +1,202 @@
 #!/system/bin/sh
+MODPATH="${0%/*}"
+SOURCE_FONT="$MODPATH/system/fonts/NotoColorEmoji.ttf"
+LOGFILE="$MODPATH/service.log"
+MAX_LOG_SIZE=$((5 * 1024 * 1024))
+MAX_LOG_FILES=3
 
-# Module directory (where the script is located)
-MODPATH=${0%/*}
-
-# Logging configuration
-LOGFILE="$MODPATH/service.log" # Log file
-MAX_LOG_SIZE=$((5 * 1024 * 1024)) # 5 MB
-MAX_LOG_FILES=3 # Keep up to 3 archived logs
-MAX_LOG_AGE_DAYS=7 # Delete logs older than 7 days
-
-# Facebook app package names
-FACEBOOK_APPS="com.facebook.orca com.facebook.katana com.facebook.lite com.facebook.mlite"
-
-# GMS font services
 GMS_FONT_PROVIDER="com.google.android.gms/com.google.android.gms.fonts.provider.FontsProvider"
 GMS_FONT_UPDATER="com.google.android.gms/com.google.android.gms.fonts.update.UpdateSchedulerService"
-GMS_FONT_DIR_PATTERN="com.google.android.gms/files/fonts"
 
-# Paths for cleanup
-DATA_FONTS_DIR="/data/fonts"
-GMS_FONTS_DIR="/data/data/com.google.android.gms/files/fonts/opentype"
-GMS_FONT_DIR_PATTERN="com.google.android.gms/files/fonts"
+app_name() {
+  case "$1" in
+    com.facebook.orca)                    echo "Messenger" ;;
+    com.facebook.katana)                  echo "Facebook" ;;
+    com.facebook.lite)                    echo "Facebook Lite" ;;
+    com.facebook.mlite)                   echo "Messenger Lite" ;;
+    com.google.android.inputmethod.latin) echo "Gboard" ;;
+    com.android.inputmethod.latin)        echo "AOSP Keyboard" ;;
+    com.samsung.android.honeyboard)       echo "Samsung Keyboard" ;;
+    com.touchtype.swiftkey)               echo "SwiftKey" ;;
+    ru.yandex.androidkeyboard)            echo "Yandex Keyboard" ;;
+    com.baidu.input)                      echo "Baidu IME" ;;
+    com.cootek.smartinputv5)              echo "TouchPal" ;;
+    org.futo.inputmethod.latin)           echo "FUTO Keyboard" ;;
+    com.fleksy.kb)                        echo "Fleksy" ;;
+    com.grammarly.android.keyboard)       echo "Grammarly Keyboard" ;;
+    kl.ime.oh)                            echo "OpenBoard" ;;
+    com.komikeyboard.latin)               echo "Komi Keyboard" ;;
+    *)                                    echo "$1" ;;
+  esac
+}
 
-# Messenger font directories
-ORCA_FONT_DIR1="/data/data/com.facebook.orca/files/fonts"
-ORCA_FONT_DIR2="/data/user/0/com.facebook.orca/files/fonts"
+is_installed() {
+  pm list packages 2>/dev/null | grep -q "^package:$1$"
+}
 
-# Ensure the log directory exists
-mkdir -p "$MODPATH"
-
-# Logging function with user feedback
 log() {
-    # Delete old log files
-    find "$MODPATH" -name "$(basename "$LOGFILE")*" -type f -mtime +$MAX_LOG_AGE_DAYS -exec rm -f {} \;
-
-    # Check if log file exists and is too large
-    if [ -f "$LOGFILE" ] && [ $(stat -c%s "$LOGFILE") -gt $MAX_LOG_SIZE ]; then
-        # Rotate logs
-        for i in $(seq $MAX_LOG_FILES -1 1); do
-            if [ -f "$LOGFILE.$i" ]; then
-                mv "$LOGFILE.$i" "$LOGFILE.$((i+1))"
-            fi
-        done
-        mv "$LOGFILE" "$LOGFILE.1"
-    fi
-
-    # Create log message
-    local log_message="$(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "$log_message" >> "$LOGFILE"
-    
-    # Display simplified message to user
-    echo "[*] $(echo "$1" | sed 's/^[A-Z]*: //')"
-}
-
-# Function to check if a package/service exists
-service_exists() {
-    pm list packages | grep -q "$1"
-    return $?
-}
-
-# Log script header
-log "================================================"
-log "iOS Emoji 18.4 service.sh Script"
-log "Brand: $(getprop ro.product.brand)"
-log "Device: $(getprop ro.product.model)"
-log "Android Version: $(getprop ro.build.version.release)"
-log "================================================"
-
-# Wait until the device has completed booting
-while [ "$(getprop sys.boot_completed)" != "1" ]; do
-    sleep 5
-done
-
-# Wait until the /sdcard directory is available
-while [ ! -d /sdcard ]; do
-    sleep 5
-done
-
-log "INFO: Service started."
-
-# Replace in-app emoji fonts
-replace_emoji_fonts() {
-    log "INFO: Starting emoji replacement process..."
-
-    # Check if the source emoji font exists
-    if [ ! -f "$MODPATH/system/fonts/NotoColorEmoji.ttf" ]; then
-        log "ERROR: Source emoji font not found. Skipping replacement."
-        return
-    fi
-
-    # Find all .ttf files containing "Emoji" in their names
-    EMOJI_FONTS=$(find /data/data /data/user/0 -iname "*emoji*.ttf" 2>/dev/null)
-
-    if [ -z "$EMOJI_FONTS" ]; then
-        log "INFO: No emoji fonts found to replace. Skipping."
-        return
-    fi
-
-    # Replace each emoji font with the custom font
-    for font in $EMOJI_FONTS; do
-        # Check if the target font file is writable
-        if [ ! -w "$font" ]; then
-            log "ERROR: Font file is not writable: $font"
-            continue
-        fi
-
-        log "INFO: Replacing emoji font: $font"
-        if ! cp "$MODPATH/system/fonts/NotoColorEmoji.ttf" "$font"; then
-            log "ERROR: Failed to replace emoji font: $font"
-        else
-            log "INFO: Successfully replaced emoji font: $font"
-        fi
-
-        # Set permissions for the replaced file
-        if ! chmod 644 "$font"; then
-            log "ERROR: Failed to set permissions for: $font"
-        else
-            log "INFO: Successfully set permissions for: $font"
-        fi
+  if [ -f "$LOGFILE" ] && [ "$(stat -c%s "$LOGFILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_SIZE" ]; then
+    i=$MAX_LOG_FILES
+    while [ "$i" -gt 1 ]; do
+      [ -f "$LOGFILE.$((i-1))" ] && mv "$LOGFILE.$((i-1))" "$LOGFILE.$i"
+      i=$((i-1))
     done
-
-    log "INFO: Emoji replacement process completed."
+    mv "$LOGFILE" "$LOGFILE.1"
+  fi
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOGFILE" 2>/dev/null
+  [ "$ACTION_MODE" = "1" ] && echo "$1"
 }
 
-replace_emoji_fonts
-
-lock_messenger_emoji() {
-    log "INFO: Applying permanent Messenger/Facebook emoji lock..."
-
-    for pkg in $FACEBOOK_APPS; do
-        if [ ! -d "/data/data/$pkg" ]; then
-            log "INFO: Package not found, skipping lock: $pkg"
-            continue
-        fi
-
-        target="/data/data/$pkg/app_ras_blobs/FacebookEmoji.ttf"
-        mkdir -p "/data/data/$pkg/app_ras_blobs"
-
-        log "INFO: Locking emoji file for $pkg"
-
-        if ! cp -f "$MODPATH/system/fonts/NotoColorEmoji.ttf" "$target"; then
-            log "ERROR: Failed to copy font to $target"
-            continue
-        fi
-
-        if ! chmod 444 "$target"; then
-            log "ERROR: Failed to set read-only permissions on $target"
-        else
-            log "INFO: Successfully set read-only permissions on $target"
-        fi
-
-        # Try to make the file truly immutable
-        if chattr +i "$target" 2>/dev/null; then
-            log "INFO: Successfully made file immutable (chattr +i): $target"
-        else
-            log "INFO: chattr +i not supported or failed (normal on some filesystems) - using read-only fallback"
-        fi
-    done
-
-    log "INFO: Permanent Messenger/Facebook emoji lock completed."
-}
-
-lock_messenger_emoji
-
-# Clean Messenger emoji caches
-log "INFO: Cleaning Messenger font caches..."
-
-for dir in "$ORCA_FONT_DIR1" "$ORCA_FONT_DIR2"; do
-    if [ -d "$dir" ]; then
-        if rm -rf "$dir"/*; then
-            log "INFO: Successfully cleaned Messenger font cache: $dir"
-        else
-            log "ERROR: Failed to clean Messenger font cache: $dir"
-        fi
+# Replace a single app's emoji font file (targeted, no subshell)
+replace_font() {
+  local pkg="$1" subdir="$2" filename="$3"
+  local name target_dir target
+  name=$(app_name "$pkg")
+  if is_installed "$pkg"; then
+    target_dir="/data/data/$pkg/$subdir"
+    target="$target_dir/$filename"
+    if [ -d "$target_dir" ] && [ -f "$target" ]; then
+      chattr -i "$target" 2>/dev/null
+      if cp "$SOURCE_FONT" "$target"; then
+        chmod 644 "$target"
+        chown "$(stat -c %u:%g "$target_dir" 2>/dev/null)" "$target" 2>/dev/null
+        log "  $name: replaced"
+      else
+        log "  $name: copy failed"
+      fi
     else
-        log "INFO: Messenger font cache directory not found: $dir"
+      log "  $name: installed, font dir not ready"
     fi
+  else
+    log "  $name: not installed"
+  fi
+}
+
+# Copy font and make it immutable to prevent app from reverting it
+lock_font() {
+  local pkg="$1" subdir="$2" filename="$3"
+  local name target
+  name=$(app_name "$pkg")
+  [ -d "/data/data/$pkg" ] || return
+  target="/data/data/$pkg/$subdir/$filename"
+  mkdir -p "/data/data/$pkg/$subdir" 2>/dev/null
+  chattr -i "$target" 2>/dev/null
+  if cp -f "$SOURCE_FONT" "$target" 2>/dev/null; then
+    chmod 444 "$target" 2>/dev/null
+    if chattr +i "$target" 2>/dev/null; then
+      log "  $name: immutable lock applied"
+    else
+      log "  $name: read-only lock applied"
+    fi
+  else
+    log "  $name: lock failed"
+  fi
+}
+
+# Clear keyboard app cache and stop it (no subshell, immediate output)
+clear_keyboard_cache() {
+  local pkg="$1" dir
+  is_installed "$pkg" || return
+  for subpath in /cache /code_cache /app_webview /files/GCache; do
+    dir="/data/data/$pkg$subpath"
+    [ -d "$dir" ] && rm -rf "$dir"
+  done
+  am force-stop "$pkg" 2>/dev/null
+  log "  $(app_name "$pkg"): cleared"
+}
+
+[ ! -f "$SOURCE_FONT" ] && exit 0
+
+if [ "$ACTION_MODE" != "1" ]; then
+  while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 5; done
+  while [ ! -d /sdcard ]; do sleep 5; done
+fi
+
+log "iOS Emoji | $(date '+%Y-%m-%d %H:%M:%S')"
+log "$(getprop ro.product.brand) $(getprop ro.product.model) | Android $(getprop ro.build.version.release)"
+log ""
+
+log "[1/5] Replacing app emoji fonts"
+replace_font "com.facebook.katana" "app_ras_blobs" "FacebookEmoji.ttf"
+replace_font "com.facebook.orca"   "app_ras_blobs" "FacebookEmoji.ttf"
+replace_font "com.facebook.lite"   "files"          "emoji_font.ttf"
+replace_font "com.facebook.mlite"  "files"          "emoji_font.ttf"
+
+log ""
+log "[2/5] Scanning for additional emoji fonts"
+TMPFIND="$MODPATH/.tmp_scan_$$"
+for base in /data/data /data/user/0; do
+  [ -d "$base" ] && find "$base" -maxdepth 5 -iname "*emoji*.ttf" 2>/dev/null
+done > "$TMPFIND"
+EXTRA_COUNT=0
+while read -r font; do
+  chattr -i "$font" 2>/dev/null
+  cp "$SOURCE_FONT" "$font" 2>/dev/null && chmod 644 "$font" || continue
+  log "  Patched: $font"
+  EXTRA_COUNT=$((EXTRA_COUNT + 1))
+done < "$TMPFIND"
+rm -f "$TMPFIND"
+[ "$EXTRA_COUNT" = "0" ] && log "  No additional fonts found"
+
+log ""
+log "[3/5] Locking Facebook emoji fonts"
+lock_font "com.facebook.katana" "app_ras_blobs" "FacebookEmoji.ttf"
+lock_font "com.facebook.orca"   "app_ras_blobs" "FacebookEmoji.ttf"
+lock_font "com.facebook.lite"   "files"          "emoji_font.ttf"
+lock_font "com.facebook.mlite"  "files"          "emoji_font.ttf"
+
+# Block Messenger from re-downloading fonts by locking the download directory
+for dir in "/data/data/com.facebook.orca/files/fonts" "/data/user/0/com.facebook.orca/files/fonts"; do
+  [ -d "$dir" ] && rm -rf "$dir"
+  mkdir -p "$dir" 2>/dev/null && chmod 000 "$dir" 2>/dev/null
 done
 
-# Block Messenger from downloading emoji fonts
-log "INFO: Blocking Messenger emoji font downloads..."
-
-for dir in "$ORCA_FONT_DIR1" "$ORCA_FONT_DIR2"; do
-    if mkdir -p "$dir"; then
-        log "INFO: Created directory: $dir"
-    else
-        log "ERROR: Failed to create directory: $dir"
-    fi
-
-    if chmod 000 "$dir"; then
-        log "INFO: Locked directory permissions: $dir"
-    else
-        log "ERROR: Failed to lock directory: $dir"
-    fi
+log "  Stopping Facebook apps"
+for pkg in com.facebook.katana com.facebook.orca com.facebook.lite com.facebook.mlite; do
+  is_installed "$pkg" && am force-stop "$pkg" 2>/dev/null
 done
 
-# Force-stop Facebook apps after all replacements are done
-log "INFO: Force-stopping apps..."
-for app in $FACEBOOK_APPS; do
-    if ! am force-stop "$app"; then
-        log "ERROR: Failed to force-stop app: $app"
-    else
-        log "INFO: Successfully force-stopped app: $app"
-    fi
-done
+log ""
+log "[4/5] Clearing keyboard caches"
+clear_keyboard_cache "com.google.android.inputmethod.latin"
+clear_keyboard_cache "com.android.inputmethod.latin"
+clear_keyboard_cache "com.samsung.android.honeyboard"
+clear_keyboard_cache "com.touchtype.swiftkey"
+clear_keyboard_cache "ru.yandex.androidkeyboard"
+clear_keyboard_cache "com.baidu.input"
+clear_keyboard_cache "com.cootek.smartinputv5"
+clear_keyboard_cache "org.futo.inputmethod.latin"
+clear_keyboard_cache "com.fleksy.kb"
+clear_keyboard_cache "com.grammarly.android.keyboard"
+clear_keyboard_cache "kl.ime.oh"
+clear_keyboard_cache "com.komikeyboard.latin"
 
-# Add a delay to allow the system to process the changes
-sleep 2
+log ""
+log "[5/5] Disabling GMS font services"
+if is_installed "com.google.android.gms"; then
+  USERS_FOUND=0
+  for userpath in /data/user/*; do
+    [ -d "$userpath" ] || continue
+    userid="${userpath##*/}"
+    pm disable --user "$userid" "$GMS_FONT_PROVIDER" >/dev/null 2>&1 \
+      && log "  Font provider disabled (user $userid)"
+    pm disable --user "$userid" "$GMS_FONT_UPDATER" >/dev/null 2>&1 \
+      && log "  Font updater disabled (user $userid)"
+    USERS_FOUND=$((USERS_FOUND + 1))
+  done
+  [ "$USERS_FOUND" = "0" ] && log "  GMS not found or no users"
+else
+  log "  GMS not installed, skipping"
+fi
 
-# Disable GMS font services for all users
-disable_gms_font_services() {
-    log "INFO: Disabling GMS font services for all users..."
+[ -d "/data/fonts" ] && rm -rf "/data/fonts" && log "  Removed /data/fonts overlay"
 
-    USERS=$(ls -d /data/user/* 2>/dev/null)
+TMPGMS="$MODPATH/.tmp_gms_$$"
+find /data -maxdepth 8 -type d -path "*com.google.android.gms/files/fonts*" 2>/dev/null > "$TMPGMS"
+while read -r dir; do
+  rm -rf "$dir" && log "  Removed GMS font dir: ${dir##*/data/data/}"
+done < "$TMPGMS"
+rm -f "$TMPGMS"
 
-    for userpath in $USERS; do
-
-        USERID=${userpath##*/}
-
-        if pm disable --user "$USERID" "$GMS_FONT_PROVIDER" >/dev/null 2>&1; then
-            log "INFO: Disabled GMS font provider for user $USERID"
-        fi
-
-        if pm disable --user "$USERID" "$GMS_FONT_UPDATER" >/dev/null 2>&1; then
-            log "INFO: Disabled GMS font updater for user $USERID"
-        fi
-
-    done
-}
-
-disable_gms_font_services
-
-# Remove GMS generated fonts
-cleanup_gms_fonts() {
-log "INFO: Cleaning up leftover font files..."
-
-    if [ -d "$DATA_FONTS_DIR" ]; then
-        rm -rf "$DATA_FONTS_DIR"
-        log "INFO: Removed $DATA_FONTS_DIR"
-    fi
-
-    find /data -type d -path "*$GMS_FONT_DIR_PATTERN*" 2>/dev/null | while read dir; do
-        if rm -rf "$dir"; then
-            log "INFO: Removed GMS font directory: $dir"
-        else
-            log "ERROR: Failed removing: $dir"
-        fi
-    done
-}
-
-cleanup_gms_fonts
-
-# Commented out the deletion of .ttf files in the opentype directory (still need testing)
-# if [ -d "$GMS_FONTS_DIR" ]; then
-#     if ! rm -rf "$GMS_FONTS_DIR"/*ttf; then
-#         log "ERROR: Failed to clean up ttf files in directory: $GMS_FONTS_DIR"
-#     else
-#         log "INFO: Successfully cleaned up ttf files in directory: $GMS_FONTS_DIR"
-#     fi
-# else
-#     log "INFO: Directory not found: $GMS_FONTS_DIR"
-# fi
-
-log "INFO: Service completed."
-log "================================================"
+log ""
+log "Done"

@@ -1,194 +1,185 @@
-##########################################################################################
-#
-# Installer Script
-#
-##########################################################################################
 #!/system/bin/sh
 
-# Script Details
-AUTOMOUNT=true
 SKIPMOUNT=false
 PROPFILE=false
 POSTFSDATA=false
 LATESTARTSERVICE=true
 
-ui_print "*******************************"
-ui_print "*          iOS Emoji 18.4           *"
-ui_print "*******************************"
-
-# Definitions
 FONT_DIR="$MODPATH/system/fonts"
-FONT_EMOJI="NotoColorEmoji.ttf"
-SYSTEM_FONT_FILE="/system/fonts/NotoColorEmoji.ttf"
+EMOJI_FONT="NotoColorEmoji.ttf"
+SOURCE_FONT="$FONT_DIR/$EMOJI_FONT"
 
+OEM_VARIANTS="
+SamsungColorEmoji.ttf
+LGNotoColorEmoji.ttf
+HTC_ColorEmoji.ttf
+AndroidEmoji-htc.ttf
+ColorUniEmoji.ttf
+DcmColorEmoji.ttf
+CombinedColorEmoji.ttf
+NotoColorEmojiLegacy.ttf
+"
 
-# Function to check if a package is installed
-package_installed() {
-    local package="$1"
-    if pm list packages | grep -q "$package"; then
-        return 0
-    else
-        return 1
-    fi
+FACEBOOK_APPS="
+com.facebook.katana:app_ras_blobs:FacebookEmoji.ttf
+com.facebook.orca:app_ras_blobs:FacebookEmoji.ttf
+com.facebook.lite:files:emoji_font.ttf
+com.facebook.mlite:files:emoji_font.ttf
+"
+
+KEYBOARD_APPS="
+com.google.android.inputmethod.latin
+com.android.inputmethod.latin
+com.samsung.android.honeyboard
+com.touchtype.swiftkey
+ru.yandex.androidkeyboard
+com.baidu.input
+com.cootek.smartinputv5
+com.anysoftkeyboard.languagepack.english
+org.futo.inputmethod.latin
+com.fleksy.kb
+com.grammarly.android.keyboard
+kl.ime.oh
+com.komikeyboard.latin
+"
+
+detect_root_manager() {
+  if [ -n "$KSU" ]; then
+    echo "KernelSU"
+  elif [ -n "$APATCH" ]; then
+    echo "APatch"
+  else
+    echo "Magisk"
+  fi
 }
 
-# Function to set user-friendly app name for package name, otherwise fallback to package name
-display_name() {
-    local package_name="$1"
-    case "$package_name" in
-        "com.facebook.orca") echo "Messenger" ;;
-        "com.facebook.katana") echo "Facebook" ;;
-        "com.facebook.lite") echo "Facebook Lite" ;;
-        "com.facebook.mlite") echo "Messenger Lite" ;;
-        "com.google.android.inputmethod.latin") echo "Gboard" ;;
-        *) echo "$package_name" ;;  # Default to package name if not found
-    esac
+app_name() {
+  case "$1" in
+    com.facebook.orca)                    echo "Messenger" ;;
+    com.facebook.katana)                  echo "Facebook" ;;
+    com.facebook.lite)                    echo "Facebook Lite" ;;
+    com.facebook.mlite)                   echo "Messenger Lite" ;;
+    com.google.android.inputmethod.latin) echo "Gboard" ;;
+    com.android.inputmethod.latin)        echo "AOSP Keyboard" ;;
+    com.samsung.android.honeyboard)       echo "Samsung Keyboard" ;;
+    com.touchtype.swiftkey)               echo "SwiftKey" ;;
+    ru.yandex.androidkeyboard)            echo "Yandex Keyboard" ;;
+    com.baidu.input)                      echo "Baidu IME" ;;
+    com.cootek.smartinputv5)              echo "TouchPal" ;;
+    org.futo.inputmethod.latin)           echo "FUTO Keyboard" ;;
+    com.fleksy.kb)                        echo "Fleksy" ;;
+    com.grammarly.android.keyboard)       echo "Grammarly Keyboard" ;;
+    kl.ime.oh)                            echo "OpenBoard" ;;
+    com.komikeyboard.latin)               echo "Komi Keyboard" ;;
+    *)                                    echo "$1" ;;
+  esac
 }
 
-# Function to mount a font file
-mount_font() {
-    local source="$1"
-    local target="$2"
-    
-    if [ ! -f "$source" ]; then
-        ui_print "- Source file $source does not exist"
-        return 1
-    fi
-    
-    local target_dir=$(dirname "$target")
-    if [ ! -d "$target_dir" ]; then
-        ui_print "- Target directory $target_dir does not exist"
-        return 1
-    fi 
-    
-    mkdir -p "$(dirname "$target")"
-    
-    if mount -o bind "$source" "$target"; then
-        chmod 644 "$target"
-    else
-        return 1
-    fi
+is_installed() {
+  pm list packages 2>/dev/null | grep -q "^package:$1$"
 }
 
-# Function to replace emojis for a specific app
-replace_emojis() {
-    local app_name="$1"
-    local app_dir="$2"
-    local emoji_dir="$3"
-    local target_filename="$4"
-    local app_display_name=$(display_name "$app_name")
-    
-    if package_installed "$app_name"; then
-        ui_print "- Detected: $app_display_name"
-        mount_font "$FONT_DIR/$FONT_EMOJI" "$app_dir/$emoji_dir/$target_filename"
-        ui_print "- Emojis mounted: $app_display_name"
-    else
-        ui_print "- Not installed: $app_display_name"
-    fi
-}
+ROOT_MANAGER=$(detect_root_manager)
 
-# Function to clear app cache
-clear_cache() {
-    local app_name="$1"
-    local app_display_name=$(display_name "$app_name")
-	
-    # Check if app exists
-    if ! package_installed "$app_name"; then
-        ui_print "- Skipping: $app_display_name (not installed)"
-        return 0
-    fi
-	
-	ui_print "- Cleaning cache: $app_display_name"
-	
-    for subpath in /cache /code_cache /app_webview /files/GCache; do
-        target_dir="/data/data/${app_name}${subpath}"
-        if [ -d "$target_dir" ]; then
-            rm -rf "$target_dir"
-        fi
-    done
+ui_print "  iOS 26 Emoji"
+ui_print "  Root: $ROOT_MANAGER"
+ui_print ""
 
-    # Force-stop
-    am force-stop "$app_name"
-    ui_print "- Cache cleared: $app_display_name"
-}
-
-# Extract module files
 unzip -o "$ZIPFILE" 'system/*' -d "$MODPATH" >&2 || {
-    ui_print "- Failed to extract module files"
-    exit 1
+  ui_print "Failed to extract module files"
+  exit 1
 }
 
-# Replace system emoji fonts
-ui_print "- Installing Emojis"
-variants="SamsungColorEmoji.ttf LGNotoColorEmoji.ttf HTC_ColorEmoji.ttf AndroidEmoji-htc.ttf ColorUniEmoji.ttf DcmColorEmoji.ttf CombinedColorEmoji.ttf NotoColorEmojiLegacy.ttf"
+if [ ! -f "$SOURCE_FONT" ]; then
+  ui_print "Emoji font not found in archive"
+  exit 1
+fi
 
-for font in $variants; do
-    if [ -f "/system/fonts/$font" ]; then
-        if cp "$FONT_DIR/$FONT_EMOJI" "$FONT_DIR/$font"; then
-            ui_print "- Replaced $font"
-        else
-            ui_print "- Failed to replace $font"
-        fi
-    fi
-done
-  
-# Mount system emoji font
-if [ -f "$FONT_DIR/$FONT_EMOJI" ]; then
-    if mount_font "$FONT_DIR/$FONT_EMOJI" "$SYSTEM_FONT_FILE"; then
-        ui_print "- System font mounted successfully"
+ui_print "Installing system emoji font"
+
+for variant in $OEM_VARIANTS; do
+  [ -z "$variant" ] && continue
+  if [ -f "/system/fonts/$variant" ]; then
+    if cp "$SOURCE_FONT" "$FONT_DIR/$variant"; then
+      ui_print "  Replaced: $variant"
     else
-        ui_print "- Failed to mount system font"
+      ui_print "  Failed: $variant"
     fi
-else
-    ui_print "- Source emoji font not found. Skipping system font mount."
-fi
-
-# Replace Facebook and Messenger emojis
-replace_emojis "com.facebook.orca" "/data/data/com.facebook.orca" "app_ras_blobs" "FacebookEmoji.ttf"
-clear_cache "com.facebook.orca"
-replace_emojis "com.facebook.katana" "/data/data/com.facebook.katana" "app_ras_blobs" "FacebookEmoji.ttf"
-clear_cache "com.facebook.katana"
-
-# Replace Lite app emojis
-replace_emojis "com.facebook.lite" "/data/data/com.facebook.lite" "files" "emoji_font.ttf"
-clear_cache "com.facebook.lite"
-replace_emojis "com.facebook.mlite" "/data/data/com.facebook.mlite" "files" "emoji_font.ttf"
-clear_cache "com.facebook.mlite"
-  
-# Clear Gboard cache if installed
-ui_print "- Clearing Gboard Cache"
-clear_cache "com.google.android.inputmethod.latin"
-  
-# Remove /data/fonts directory for Android 12+ instead of replacing the files (removing the need to run the troubleshooting step, thanks @reddxae)
-if [ -d "/data/fonts" ]; then
-    rm -rf "/data/fonts"
-    ui_print "- Removed existing /data/fonts directory"
-fi
-
-# Handle fonts.xml symlinks
-[[ -d /sbin/.core/mirror ]] && MIRRORPATH=/sbin/.core/mirror || unset MIRRORPATH
-FONTS=/system/etc/fonts.xml
-FONTFILES=$(sed -ne '/<family lang="und-Zsye".*>/,/<\/family>/ {s/.*<font weight="400" style="normal">\(.*\)<\/font>.*/\1/p;}' "$MIRRORPATH$FONTS")
-for font in $FONTFILES; do
-    ln -s /system/fonts/NotoColorEmoji.ttf "$MODPATH/system/fonts/$font"
+  fi
 done
 
-# Set permissions
-ui_print "- Setting Permissions"
-set_perm_recursive "$MODPATH" 0 0 0755 0644
-ui_print "- Done"
-ui_print "- Custom emojis installed successfully!"
-ui_print "- Reboot your device to apply changes."
-ui_print "- Enjoy your new emojis! :)"
-
-# OverlayFS Support based on https://github.com/HuskyDG/magic_overlayfs 
-OVERLAY_IMAGE_EXTRA=0
-OVERLAY_IMAGE_SHRINK=true
-
-# Only use OverlayFS if Magisk_OverlayFS is installed
-if [ -f "/data/adb/modules/magisk_overlayfs/util_functions.sh" ] && \
-    /data/adb/modules/magisk_overlayfs/overlayfs_system --test; then
-  ui_print "- Add support for overlayfs"
-  . /data/adb/modules/magisk_overlayfs/util_functions.sh
-  support_overlayfs && rm -rf "$MODPATH"/system
+MIRRORPATH=""
+[ -d /sbin/.core/mirror ] && MIRRORPATH=/sbin/.core/mirror
+FONTS_XML="/system/etc/fonts.xml"
+if [ -f "$MIRRORPATH$FONTS_XML" ]; then
+  EXTRA_FONTS=$(sed -ne '/<family lang="und-Zsye".*>/,/<\/family>/ {
+    s/.*<font weight="400" style="normal">\(.*\)<\/font>.*/\1/p
+  }' "$MIRRORPATH$FONTS_XML")
+  for font in $EXTRA_FONTS; do
+    [ "$font" != "$EMOJI_FONT" ] && ln -sf "/system/fonts/$EMOJI_FONT" "$FONT_DIR/$font"
+  done
 fi
+
+ui_print "Replacing app emoji fonts"
+
+# Use temp file to avoid subshell buffering from pipe-to-while
+TMPFILE="$MODPATH/.tmp_fb_$$"
+printf '%s' "$FACEBOOK_APPS" > "$TMPFILE"
+while IFS=: read -r pkg subdir filename; do
+  [ -z "$pkg" ] && continue
+  name=$(app_name "$pkg")
+  if is_installed "$pkg"; then
+    target="/data/data/$pkg/$subdir/$filename"
+    target_dir="/data/data/$pkg/$subdir"
+    if [ -d "$target_dir" ] && [ -f "$target" ]; then
+      chattr -i "$target" 2>/dev/null
+      cp "$SOURCE_FONT" "$target" && chmod 644 "$target"
+      chattr +i "$target" 2>/dev/null
+      am force-stop "$pkg" 2>/dev/null
+      ui_print "  $name: replaced and locked"
+    else
+      ui_print "  $name: installed, will apply on boot"
+    fi
+  else
+    ui_print "  $name: not installed"
+  fi
+done < "$TMPFILE"
+rm -f "$TMPFILE"
+
+ui_print "Clearing keyboard caches"
+
+TMPFILE="$MODPATH/.tmp_kbd_$$"
+printf '%s' "$KEYBOARD_APPS" > "$TMPFILE"
+while read -r pkg; do
+  [ -z "$pkg" ] && continue
+  if is_installed "$pkg"; then
+    name=$(app_name "$pkg")
+    for subpath in /cache /code_cache /app_webview /files/GCache; do
+      dir="/data/data/$pkg$subpath"
+      [ -d "$dir" ] && rm -rf "$dir"
+    done
+    am force-stop "$pkg" 2>/dev/null
+    ui_print "  $name: cleared"
+  fi
+done < "$TMPFILE"
+rm -f "$TMPFILE"
+
+if [ -d "/data/fonts" ]; then
+  rm -rf "/data/fonts"
+  ui_print "Removed /data/fonts overlay"
+fi
+
+ui_print "Setting permissions"
+set_perm_recursive "$MODPATH" 0 0 0755 0644
+
+if [ -f "/data/adb/modules/magisk_overlayfs/util_functions.sh" ] && \
+   /data/adb/modules/magisk_overlayfs/overlayfs_system --test 2>/dev/null; then
+  ui_print "Enabling OverlayFS support"
+  OVERLAY_IMAGE_EXTRA=0
+  OVERLAY_IMAGE_SHRINK=true
+  . /data/adb/modules/magisk_overlayfs/util_functions.sh
+  support_overlayfs && rm -rf "$MODPATH/system"
+fi
+
+ui_print ""
+ui_print "Installation complete - reboot to apply"
