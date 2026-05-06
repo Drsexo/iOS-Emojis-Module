@@ -2,8 +2,6 @@
 MODPATH="${0%/*}"
 SOURCE_FONT="$MODPATH/system/fonts/NotoColorEmoji.ttf"
 LOGFILE="$MODPATH/service.log"
-MAX_LOG_SIZE=$((5 * 1024 * 1024))
-MAX_LOG_FILES=3
 
 GMS_FONT_PROVIDER="com.google.android.gms/com.google.android.gms.fonts.provider.FontsProvider"
 GMS_FONT_UPDATER="com.google.android.gms/com.google.android.gms.fonts.update.UpdateSchedulerService"
@@ -35,19 +33,10 @@ is_installed() {
 }
 
 log() {
-  if [ -f "$LOGFILE" ] && [ "$(stat -c%s "$LOGFILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_SIZE" ]; then
-    i=$MAX_LOG_FILES
-    while [ "$i" -gt 1 ]; do
-      [ -f "$LOGFILE.$((i-1))" ] && mv "$LOGFILE.$((i-1))" "$LOGFILE.$i"
-      i=$((i-1))
-    done
-    mv "$LOGFILE" "$LOGFILE.1"
-  fi
   echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOGFILE" 2>/dev/null
   [ "$ACTION_MODE" = "1" ] && echo "$1"
 }
 
-# Replace a single app's emoji font file (targeted, no subshell)
 replace_font() {
   local pkg="$1" subdir="$2" filename="$3"
   local name target_dir target
@@ -72,7 +61,6 @@ replace_font() {
   fi
 }
 
-# Copy font and make it immutable to prevent app from reverting it
 lock_font() {
   local pkg="$1" subdir="$2" filename="$3"
   local name target
@@ -93,7 +81,6 @@ lock_font() {
   fi
 }
 
-# Clear keyboard app cache and stop it (no subshell, immediate output)
 clear_keyboard_cache() {
   local pkg="$1" dir
   is_installed "$pkg" || return
@@ -105,16 +92,14 @@ clear_keyboard_cache() {
   log "  $(app_name "$pkg"): cleared"
 }
 
-[ ! -f "$SOURCE_FONT" ] && exit 0
+[ ! -f "$SOURCE_FONT" ] && exec 1>&- 2>&- && exit 0
 
 if [ "$ACTION_MODE" != "1" ]; then
   while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 5; done
   while [ ! -d /sdcard ]; do sleep 5; done
 fi
 
-log "iOS Emoji | $(date '+%Y-%m-%d %H:%M:%S')"
-log "$(getprop ro.product.brand) $(getprop ro.product.model) | Android $(getprop ro.build.version.release)"
-log ""
+: > "$LOGFILE"
 
 log "[1/5] Replacing app emoji fonts"
 replace_font "com.facebook.katana" "app_ras_blobs" "FacebookEmoji.ttf"
@@ -145,7 +130,6 @@ lock_font "com.facebook.orca"   "app_ras_blobs" "FacebookEmoji.ttf"
 lock_font "com.facebook.lite"   "files"          "emoji_font.ttf"
 lock_font "com.facebook.mlite"  "files"          "emoji_font.ttf"
 
-# Block Messenger from re-downloading fonts by locking the download directory
 for dir in "/data/data/com.facebook.orca/files/fonts" "/data/user/0/com.facebook.orca/files/fonts"; do
   [ -d "$dir" ] && rm -rf "$dir"
   mkdir -p "$dir" 2>/dev/null && chmod 000 "$dir" 2>/dev/null
@@ -200,3 +184,6 @@ rm -f "$TMPGMS"
 
 log ""
 log "Done"
+
+exec 1>&- 2>&-
+exit 0

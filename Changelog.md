@@ -1,4 +1,9 @@
-## v26.4
+## 26.4.1
+- Added action menu: Vol UP applies iOS emojis, Vol DOWN unlocks and cleans all patched app fonts immediately without a reboot.
+- Fixed KSU action console not showing close button after completion. 
+- Cleaned up code
+
+## 26.4
 - Updated to iOS 26.4 emojis.
 - Fixed action button crash on KernelSU variants.
 - Fixed `cp: Operation not permitted` on all Facebook emoji fonts when re-running the action button. Files locked with `chattr +i` in a prior run now have the immutable flag stripped before each copy.

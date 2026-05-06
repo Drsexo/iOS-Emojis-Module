@@ -1,7 +1,7 @@
 id=iOS_Emojis_Next
 name=iOS Emojis
-version=v26.4
-versionCode=264
+version=26.4.1
+versionCode=2641
 author=DrSexo
 description=Systemlessly replaces emoji font with iOS Emojis. Compatible with Magisk, KernelSU, and APatch.
 updateJson=https://raw.githubusercontent.com/drsexo/iOS-Emojis-Module/main/update.json
